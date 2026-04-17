@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>All work and no play</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; overflow:hidden; background:#f2ece0; }
+#vignette {
+  position:fixed; inset:0; pointer-events:none; z-index:3;
+  background:radial-gradient(ellipse at center, transparent 40%, rgba(10,5,0,0.6) 100%);
+}
+#page {
+  position:fixed;
+  left:0; width:100%;
+  display:flex;
+  flex-direction:column;
+  /* top will be set by JS to vertically center the typing line */
+}
+.row {
+  font-family:'Courier New',Courier,monospace;
+  font-size:15px;
+  line-height:30px;
+  letter-spacing:0.05em;
+  white-space:pre;
+  padding:0 56px;
+  color:#1a1008;
+  flex-shrink:0;
+}
+.row.dim  { color:#9a8a74; }
+.row.dark { color:#0a0804; font-weight:bold; }
+</style>
+</head>
+<body>
+<div id="vignette"></div>
+<div id="page"></div>
+<script>
+(function(){
+  var BASE    = "All work and no play makes Jack a dull boy";
+  var LH      = 30;
+  var CHAR_MS = 65;
+
+  function rnd(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
+
+  var MUTS = [
+    function(s){ var i=rnd(1,s.length-2); return s.slice(0,i)+s[i]+s.slice(i); },
+    function(s){ var i=rnd(1,s.length-2); return s.slice(0,i)+s.slice(i+1); },
+    function(s){ var i=rnd(1,s.length-2); return s.slice(0,i)+s[i+1]+s[i]+s.slice(i+2); },
+    function(s){ return s+'s'; },
+    function(s){ return s.slice(0,-1); },
+    function(s){ var i=rnd(1,s.length-2); return s.slice(0,i)+' '+s.slice(i); },
+    function(s){
+      var sp=[];
+      for(var k=0;k<s.length;k++) if(s[k]===' ') sp.push(k);
+      if(!sp.length) return s;
+      var p=sp[rnd(0,sp.length-1)];
+      return s.slice(0,p)+s.slice(p+1);
+    },
+    function(s){ var w=s.split(' '); var i=rnd(0,w.length-1); w.splice(i,0,w[i]); return w.join(' '); },
+    function(s){ return s; },
+    function(s){ return s; },
+    function(s){ return s; },
+    function(s){ return s; },
+  ];
+
+  function mutate(){
+    var s=BASE, n=Math.random()<0.38?0:(Math.random()<0.7?1:2), used={};
+    for(var k=0;k<=n;k++){
+      var idx; do{ idx=rnd(0,MUTS.length-1); }while(used[idx]); used[idx]=true;
+      s=MUTS[idx](s);
+    }
+    return s;
+  }
+
+  function rowCls(){
+    var r=Math.random();
+    if(r<0.08) return ' dim';
+    if(r<0.14) return ' dark';
+    return '';
+  }
+
+  var page      = document.getElementById('page');
+  var VH        = window.innerHeight;
+  var visLines  = Math.floor(VH / LH);
+  var halfLines = Math.floor(visLines / 2);
+
+  // history lines array (DOM divs, index 0 = topmost)
+  var history   = [];
+  var lastChar  = 0;
+
+  // cursor
+  var curEl = document.createElement('span');
+  curEl.textContent = '█';
+  var curOn = true;
+  setInterval(function(){ curOn=!curOn; curEl.style.opacity=curOn?'1':'0'; }, 400);
+
+  // typing line — always the last child of #page
+  var typingDiv = document.createElement('div');
+  typingDiv.className = 'row' + rowCls();
+  var typingTn  = document.createTextNode('');
+  typingDiv.appendChild(typingTn);
+  typingDiv.appendChild(curEl);
+  page.appendChild(typingDiv);
+
+  var typingText = mutate();
+  var typingPos  = 0;
+
+  // Position #page so that the typing line sits at vertical center.
+  // #page top = (VH/2) - (history.length * LH)
+  // typing line is always the last row, so its top = history.length * LH from page top
+  // → its screen top = page.top + history.length*LH = VH/2  ✓
+  function reposition(){
+    var pageTop = Math.round(VH / 2) - history.length * LH;
+    page.style.top = pageTop + 'px';
+  }
+  reposition();
+
+  function addHistoryRow(){
+    var div = document.createElement('div');
+    div.className = 'row' + rowCls();
+    div.textContent = mutate();
+    page.insertBefore(div, page.firstChild);
+    history.unshift(div);
+    // prune rows scrolled off top
+    while(history.length > halfLines + 2){
+      var old = history.pop();
+      if(old.parentNode) old.parentNode.removeChild(old);
+    }
+    reposition();
+  }
+
+  // Pre-fill random history lines (0 ~ halfLines-1) so start position varies
+  var preHistory = rnd(0, halfLines - 1);
+  for(var i=0; i<preHistory; i++) addHistoryRow();
+
+  function tick(ts){
+    if(ts - lastChar >= CHAR_MS){
+      lastChar = ts;
+      if(typingPos < typingText.length){
+        typingPos++;
+        typingTn.textContent = typingText.slice(0, typingPos);
+      } else {
+        // finish line → push into history, start new typing line
+        typingDiv.removeChild(curEl);
+
+        var done = document.createElement('div');
+        done.className = typingDiv.className;
+        done.textContent = typingText;
+        page.insertBefore(done, typingDiv);
+        history.unshift(done);
+
+        while(history.length > halfLines + 2){
+          var old = history.pop();
+          if(old.parentNode) old.parentNode.removeChild(old);
+        }
+
+        typingText = mutate();
+        typingPos  = 0;
+        typingTn.textContent = '';
+        typingDiv.className = 'row' + rowCls();
+        typingDiv.appendChild(curEl);
+
+        reposition();
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
