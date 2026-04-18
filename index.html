@@ -16,15 +16,16 @@ html, body { width:100%; height:100%; overflow:hidden; background:#f2ece0; }
   left:0; width:100%;
   display:flex;
   flex-direction:column;
-  /* top will be set by JS to vertically center the typing line */
 }
 .row {
   font-family:'Courier New',Courier,monospace;
-  font-size:15px;
-  line-height:30px;
-  letter-spacing:0.05em;
-  white-space:pre;
-  padding:0 56px;
+  font-size:clamp(11px, 3.5vw, 15px);
+  line-height:1.9;
+  letter-spacing:0.03em;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:clip;
+  padding:0 4vw;
   color:#1a1008;
   flex-shrink:0;
 }
@@ -38,8 +39,10 @@ html, body { width:100%; height:100%; overflow:hidden; background:#f2ece0; }
 <script>
 (function(){
   var BASE    = "All work and no play makes Jack a dull boy";
-  var LH      = 30;
   var CHAR_MS = 65;
+
+  // compute LH after fonts settle
+  var LH = 0;
 
   function rnd(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
 
@@ -80,14 +83,10 @@ html, body { width:100%; height:100%; overflow:hidden; background:#f2ece0; }
     return '';
   }
 
-  var page      = document.getElementById('page');
-  var VH        = window.innerHeight;
-  var visLines  = Math.floor(VH / LH);
-  var halfLines = Math.floor(visLines / 2);
-
-  // history lines array (DOM divs, index 0 = topmost)
-  var history   = [];
-  var lastChar  = 0;
+  var page     = document.getElementById('page');
+  var VH       = window.innerHeight;
+  var history  = [];
+  var lastChar = 0;
 
   // cursor
   var curEl = document.createElement('span');
@@ -95,10 +94,10 @@ html, body { width:100%; height:100%; overflow:hidden; background:#f2ece0; }
   var curOn = true;
   setInterval(function(){ curOn=!curOn; curEl.style.opacity=curOn?'1':'0'; }, 400);
 
-  // typing line — always the last child of #page
+  // typing line
   var typingDiv = document.createElement('div');
   typingDiv.className = 'row' + rowCls();
-  var typingTn  = document.createTextNode('');
+  var typingTn = document.createTextNode('');
   typingDiv.appendChild(typingTn);
   typingDiv.appendChild(curEl);
   page.appendChild(typingDiv);
@@ -106,68 +105,72 @@ html, body { width:100%; height:100%; overflow:hidden; background:#f2ece0; }
   var typingText = mutate();
   var typingPos  = 0;
 
-  // Position #page so that the typing line sits at vertical center.
-  // #page top = (VH/2) - (history.length * LH)
-  // typing line is always the last row, so its top = history.length * LH from page top
-  // → its screen top = page.top + history.length*LH = VH/2  ✓
   function reposition(){
-    var pageTop = Math.round(VH / 2) - history.length * LH;
+    var pageTop = Math.round(VH / 1.5) - history.length * LH;   // ensure the current line is about 2/3 down the screen, and move the history up as it grows
     page.style.top = pageTop + 'px';
   }
-  reposition();
 
-  function addHistoryRow(){
-    var div = document.createElement('div');
-    div.className = 'row' + rowCls();
-    div.textContent = mutate();
-    page.insertBefore(div, page.firstChild);
-    history.unshift(div);
-    // prune rows scrolled off top
-    while(history.length > halfLines + 2){
+  function pruneHistory(maxRows){
+    while(history.length > maxRows){
       var old = history.pop();
       if(old.parentNode) old.parentNode.removeChild(old);
     }
-    reposition();
   }
 
-  // Pre-fill random history lines (0 ~ halfLines-1) so start position varies
-  var preHistory = rnd(0, halfLines - 1);
-  for(var i=0; i<preHistory; i++) addHistoryRow();
+  function start(){
+    // measure actual line height from a rendered row
+    LH = typingDiv.getBoundingClientRect().height || 28;
+    var visLines  = Math.floor(VH / LH);
+    var halfLines = Math.floor(visLines);
 
-  function tick(ts){
-    if(ts - lastChar >= CHAR_MS){
-      lastChar = ts;
-      if(typingPos < typingText.length){
-        typingPos++;
-        typingTn.textContent = typingText.slice(0, typingPos);
-      } else {
-        // finish line → push into history, start new typing line
-        typingDiv.removeChild(curEl);
-
-        var done = document.createElement('div');
-        done.className = typingDiv.className;
-        done.textContent = typingText;
-        page.insertBefore(done, typingDiv);
-        history.unshift(done);
-
-        while(history.length > halfLines + 2){
-          var old = history.pop();
-          if(old.parentNode) old.parentNode.removeChild(old);
-        }
-
-        typingText = mutate();
-        typingPos  = 0;
-        typingTn.textContent = '';
-        typingDiv.className = 'row' + rowCls();
-        typingDiv.appendChild(curEl);
-
-        reposition();
-      }
+    // random pre-history
+    var pre = rnd(0, halfLines - 1);
+    for(var i=0; i<pre; i++){
+      var div = document.createElement('div');
+      div.className = 'row' + rowCls();
+      div.textContent = mutate(); 
+      page.insertBefore(div, page.firstChild);
+      history.unshift(div);
     }
+    pruneHistory(halfLines + 3);
+    reposition();
+
+    function tick(ts){
+      if(ts - lastChar >= CHAR_MS){
+        lastChar = ts;
+        if(typingPos < typingText.length){
+          typingPos++;
+          typingTn.textContent = typingText.slice(0, typingPos);
+        } else {
+          typingDiv.removeChild(curEl);
+
+          var done = document.createElement('div');
+          done.className = typingDiv.className;
+          done.textContent = typingText;
+          page.insertBefore(done, typingDiv);
+          history.unshift(done);
+          pruneHistory(halfLines + 2);
+
+          typingText = mutate();
+          typingPos  = 0;
+          typingTn.textContent = '';
+          typingDiv.className = 'row' + rowCls();
+          typingDiv.appendChild(curEl);
+
+          reposition();
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+
     requestAnimationFrame(tick);
   }
 
-  requestAnimationFrame(tick);
+  // wait one frame so browser renders the div and we can measure it
+  requestAnimationFrame(function(){
+    requestAnimationFrame(start);
+  });
+
 })();
 </script>
 </body>
